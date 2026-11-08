@@ -4,6 +4,6 @@ motor>=3.0.0
 python-dotenv>=0.19.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
-edge-tts
+gTTS
 apscheduler
 google-genai
