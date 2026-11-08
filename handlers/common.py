@@ -1,77 +1,58 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from db.mongo import db
-from config import settings
-from utils.subscription import check_subscription, get_subscription_keyboard
-
 
 router = Router()
 
-# Обработчик нажатия на кнопку проверки подписки
-# Обработчик нажатия на кнопку проверки подписки уже реализован в middleware
-# Этот обработчик оставлен для обратной совместимости
-@router.callback_query(F.data == "check_subscription")
-async def process_subscription_check(callback: CallbackQuery):
-    # Обработка будет выполнена в middleware
-    pass
+class ProfileStates(StatesGroup):
+    waiting_for_name = State()
 
 @router.message(Command("start"))
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     if not user:
         await db.create_user(message.from_user.id, message.from_user.username)
-    
-    # Проверяем подписку пользователя
-    is_subscribed = await check_subscription(message.bot, message.from_user.id)
-    
-    welcome_text = (
-        "👋 Привет! Я бот для подготовки к польскому языку.\n\n"
-        "Я помогу тебе:\n"
-        "• Подготовиться к карте поляка\n"
-        "• Узнать свой уровень и получить план обучения\n"
-        "• Улучшить навыки общения\n\n"
-        "Доступные команды:\n"
-        "/start - Начать работу с ботом\n"
-         "/interview - Подготовка к интервью\n"
-            "/test - Узнать свой уровень и получить план обучения\n"
+        user = await db.get_user(message.from_user.id)
+
+    if not user.get("name"):
+        await state.set_state(ProfileStates.waiting_for_name)
+        await message.answer("👋 Привет! Я твой семейный репетитор польского. Как тебя зовут?")
+        return
+
+    await message.answer(
+        f"👋 Привет, {user['name']}!\n"
+        f"Твой уровень: {user.get('language_level', 'A0')}\n\n"
+        "Команды:\n"
+        "/test — Определить уровень\n"
+        "/lesson — Начать урок\n"
+        "/remind 21:00 — Напоминание\n"
+        "/profile — Мой профиль"
     )
-    
-    if not is_subscribed:
-        welcome_text += (
-            "\n⚠️ Для доступа ко всем функциям бота необходимо подписаться на наш канал:\n"
-            "• /interview - Подготовка к интервью на карту поляка\n"
-            "• /test - Узнать свой уровень и получить план обучения\n"
-        )
-        keyboard = get_subscription_keyboard()
-        await message.answer(welcome_text, reply_markup=keyboard)
-    else:
-        await message.answer(welcome_text)
 
+@router.message(ProfileStates.waiting_for_name)
+async def process_name(message: Message, state: FSMContext):
+    await db.update_user_field(message.from_user.id, "name", message.text)
+    await state.clear()
+    await message.answer(f"Приятно познакомиться, {message.text}! Напиши /test, чтобы мы определили твой уровень.", reply_markup=ReplyKeyboardRemove())
 
+@router.message(Command("profile"))
+async def cmd_profile(message: Message):
+    user = await db.get_user(message.from_user.id)
+    if not user: return await message.answer("Напиши /start.")
+    await message.answer(
+        f"👤 Имя: {user.get('name')}\n"
+        f"📊 Уровень: {user.get('language_level')}\n"
+        f"📚 Слов изучено: {len(user.get('learned_words', []))}\n"
+        f"⏰ Напоминание: {user.get('reminder_time', 'Выключено')}"
+    )
 
-@router.message(Command("channel"))
-async def cmd_channel(message: Message):
-    """Обработчик команды /channel - отправляет ссылку на канал"""
-    # Проверяем, подписан ли пользователь
-    is_subscribed = await check_subscription(message.bot, message.from_user.id)
-    
-    if is_subscribed:
-        await message.answer(
-            "✅ Вы уже подписаны на наш канал! Используйте команды бота:\n\n"
-            "/start - Начать работу с ботом\n"
-            "/test - Начать тест уровня языка\n"
-            "/interview - Подготовка к интервью"
-        )
-    else:
-        # Используем клавиатуру с кнопкой проверки подписки
-        keyboard = get_subscription_keyboard()
-        
-        await message.answer(
-            "👋 Добро пожаловать! Для использования бота необходимо подписаться на наш канал.\n\n"
-            "1️⃣ Нажмите кнопку «Подписаться на канал»\n"
-            "2️⃣ Подпишитесь на канал\n"
-            "3️⃣ Вернитесь в бот и нажмите «Проверить подписку»\n\n"
-            "После подписки вам станут доступны все функции бота!",
-            reply_markup=keyboard
-        )
+@router.message(Command("remind"))
+async def cmd_remind(message: Message):
+    args = message.text.split()
+    if len(args) < 2:
+        return await message.answer("Формат: /remind 21:00")
+    await db.update_user_field(message.from_user.id, "reminder_time", args[1])
+    await message.answer(f"✅ Буду напоминать каждый день в {args[1]}.")
