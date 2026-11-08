@@ -11,6 +11,7 @@ from aiogram.types import BotCommand
 from db.mongo import db
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime
+import zoneinfo  # <-- Импортируем для работы с часовыми поясами
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,28 +20,32 @@ bot = Bot(token=settings.TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 scheduler = AsyncIOScheduler()
 
-# Подключаем роутеры
 dp.include_router(common.router)
 dp.include_router(test.router)
 dp.include_router(lesson.router)
 dp.include_router(interview.router)
 
 async def send_reminders():
-    now = datetime.now().strftime("%H:%M")
+    # Получаем текущее время в UTC (сервер)
+    now_utc = datetime.now(zoneinfo.ZoneInfo("UTC"))
+    
     users = await db.get_users_with_reminders()
     for user in users:
-        if user.get("reminder_time") == now:
-            try:
+        try:
+            user_tz_name = user.get("timezone", "Asia/Almaty")
+            user_tz = zoneinfo.ZoneInfo(user_tz_name)
+            now_local = now_utc.astimezone(user_tz)
+            current_time_str = now_local.strftime("%H:%M")
+
+            if user.get("reminder_time") == current_time_str:
                 await bot.send_message(user["user_id"], f"👋 {user.get('name', 'Друг')}, время учить польский! Напиши /lesson 🇵🇱")
-            except Exception as e:
-                logger.error(f"Reminder error: {e}")
+        except Exception as e:
+            logger.error(f"Reminder error for user {user['user_id']}: {e}")
 
 async def on_startup(bot: Bot):
-    # Запускаем планировщик
     scheduler.add_job(send_reminders, 'cron', minute='*')
     scheduler.start()
     
-    # Настраиваем вебхук
     if os.getenv('RENDER_EXTERNAL_URL'):
         webhook_url = f"{os.getenv('RENDER_EXTERNAL_URL').rstrip('/')}{settings.WEBHOOK_PATH}"
     else:
@@ -55,6 +60,8 @@ async def on_startup(bot: Bot):
         BotCommand(command="lesson", description="Новый урок"),
         BotCommand(command="profile", description="Профиль"),
         BotCommand(command="remind", description="Напоминание"),
+        BotCommand(command="timezone", description="Сменить часовой пояс"),
+        BotCommand(command="setlevel", description="Сменить уровень"),
     ])
 
 async def health_check(request):
