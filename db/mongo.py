@@ -10,6 +10,10 @@ class Database:
     async def get_user(self, user_id: int):
         return await self.db.users.find_one({"user_id": user_id})
 
+    async def get_all_users(self):
+        """Возвращает всех пользователей для таблицы лидеров."""
+        return await self.db.users.find().to_list(length=None)
+
     async def create_user(self, user_id: int, username: str):
         user_data = {
             "user_id": user_id,
