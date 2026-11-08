@@ -73,9 +73,10 @@ async def cmd_lesson(message: Message, state: FSMContext):
 
     await message.answer(f"🔄 {name}, готовлю урок: уровень {level}, тема «{topic}»...")
 
-    # Максимально простой и понятный промпт
     prompt = f"""Напиши урок польского языка для ученика. Уровень: {level}. Тема: {topic}. Грамматика: {grammar}.
 {review_text}
+
+⚠️ КРИТИЧЕСКИ ВАЖНО: НЕ ПИШИ СВОИ РАЗМЫШЛЕНИЯ! Не пиши "Here's a thinking process", "Analyze User Request" или "Вот мой план". СРАЗУ ПИШИ ГОТОВЫЙ УРОК.
 
 Твоя задача — написать сам урок по следующему плану:
 1. Новые слова: 5 польских слов с переводом и примером (пример обязательно новый, не бери предложения из заданий).
@@ -97,11 +98,6 @@ async def cmd_lesson(message: Message, state: FSMContext):
 
     if not lesson_raw or lesson_raw.startswith("⚠️") or lesson_raw.startswith("Ошибка"):
         await message.answer(f"⚠️ Ошибка от ИИ:\n<code>{lesson_raw}</code>", parse_mode="HTML")
-        return
-        
-    # Защита от "эха промпта" (если ИИ начал пересказывать правила)
-    if "We need to" in lesson_raw or "Твоя задача" in lesson_raw or "Ты должен" in lesson_raw:
-        await message.answer("⚠️ Нейросеть запуталась и начала повторять инструкции. Попробуй нажать /lesson еще раз.")
         return
 
     new_words = _extract_words(lesson_raw)
@@ -149,6 +145,7 @@ async def check_lesson(message: Message, state: FSMContext):
 - Правильные польские слова выделяй <b>жирным</b>.
 - В конце кратко объясни ошибки НА РУССКОМ.
 
+⚠️ НЕ ПИШИ СВОИ РАЗМЫШЛЕНИЯ! Только чистый результат проверки.
 ВАЖНО: Только теги <b> и <i>. Без таблиц!
 В самом конце на новой строке добавь метку:
 - Если ВСЕ ответы абсолютно правильные: [PERFECT]
