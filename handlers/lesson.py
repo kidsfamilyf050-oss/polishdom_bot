@@ -2,7 +2,7 @@ import os
 import uuid
 import asyncio
 import logging
-import edge_tts
+from gtts import gTTS
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
@@ -17,20 +17,17 @@ logger = logging.getLogger(__name__)
 class LessonStates(StatesGroup):
     waiting_for_answers = State()
 
-async def generate_audio_with_retry(text: str, filename: str):
-    """Генерирует аудио с повторными попытками и запасным голосом."""
-    voices_to_try = ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"]
-    
-    for voice in voices_to_try:
-        for attempt in range(2):
-            try:
-                communicate = edge_tts.Communicate(text, voice)
-                await communicate.save(filename)
-                return True
-            except Exception as e:
-                logger.warning(f"Не удалось получить аудио с голосом {voice}: {e}")
-                await asyncio.sleep(1)
-    return False
+async def generate_audio(text: str, filename: str) -> bool:
+    """Генерирует аудио с помощью gTTS (Google Text-to-Speech)."""
+    try:
+        # Создаем объект gTTS для польского языка
+        tts = gTTS(text=text, lang='pl', slow=False)
+        # Сохраняем в файл. Используем to_thread, чтобы не блокировать бота
+        await asyncio.to_thread(tts.save, filename)
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка gTTS: {e}")
+        return False
 
 @router.message(Command("lesson"))
 async def cmd_lesson(message: Message, state: FSMContext):
@@ -57,15 +54,20 @@ async def cmd_lesson(message: Message, state: FSMContext):
         await message.answer(lesson_text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Ошибка HTML в уроке: {e}. Отправляю текстом.")
-        await message.answer(lesson_text) # Отправляем без форматирования, если теги битые
+        await message.answer(lesson_text)
     
-    audio_text = "Урок польского. Слушай внимательно."
+    # Генерируем аудио из первых 300 символов урока (чтобы файл не был слишком тяжелым)
+    # В идеале тут должен быть выделенный диалог, но для теста возьмем кусок текста
+    text_to_speak = lesson_text.replace('<b>', '').replace('</b>', '').replace('<code>', '').replace('</code>', '')[:300]
+    
     filename = f"audio_{uuid.uuid4().hex}.mp3"
+    success = await generate_audio(text_to_speak, filename)
     
-    success = await generate_audio_with_retry(audio_text, filename)
     if success:
-        await message.answer_voice(FSInputFile(filename), caption="🔊 Аудио к уроку")
+        await message.answer_voice(FSInputFile(filename), caption="🔊 Послушай урок (озвучка Google)")
         os.remove(filename)
+    else:
+        await message.answer("⚠️ Аудио временно недоступно.")
     
     await state.set_state(LessonStates.waiting_for_answers)
     await state.update_data(current_lesson=lesson_text)
@@ -77,7 +79,6 @@ async def check_lesson(message: Message, state: FSMContext):
     lesson_text = data.get("current_lesson")
     user_answers = message.text
     
-    # 1. Сразу сообщаем, что бот жив и начал проверку
     await message.answer("🔄 Принял ответы! Анализирую ошибки и готовлю разбор... Подожди 10-15 секунд.")
     
     prompt = f"""
@@ -95,12 +96,11 @@ async def check_lesson(message: Message, state: FSMContext):
     try:
         feedback = await get_ai_response(prompt)
         
-        # 2. Пытаемся отправить красиво
         try:
             await message.answer(feedback, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Ошибка HTML в проверке: {e}. Отправляю текстом.")
-            await message.answer(feedback) # Если теги битые - шлем чистый текст
+            await message.answer(feedback)
             
         await state.clear()
         await message.answer("Отлично поработали! Напиши /lesson для следующего урока.")
