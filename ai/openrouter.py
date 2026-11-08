@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 
 # ==========================================
-# СИСТЕМНЫЕ ПРОМПТЫ (ОНИ ДОЛЖНЫ БЫТЬ ЗДЕСЬ)
+# СИСТЕМНЫЕ ПРОМПТЫ
 # ==========================================
 INTERVIEW_SYSTEM_PROMPT = """You are a Polish language interview assistant for Karta Polaka (Polish Card) preparation.
 Conduct mock interviews in Russian, helping users prepare for real Polish Card interviews.
@@ -15,7 +15,7 @@ Be encouraging and supportive while maintaining professionalism."""
 
 TEST_SYSTEM_PROMPT = """You are a strict Polish language assessment expert. 
 Evaluate the user's Polish language level based on their responses and provide detailed feedback in Russian.
-Determine their level according to CEFR standards (A1, A2, B1, B2, C1, C2).
+Determine their level according to CEFR standards (A0, A1, A2, B1, B2, C1, C2).
 Provide specific recommendations for improvement and next steps in their language learning journey."""
 
 WORD_SYSTEM_PROMPT = """You are a Polish language teacher. Generate a word in Polish based on the given topic. 
@@ -24,11 +24,11 @@ The word and example should be appropriate for the student's level.
 The translations MUST be in Russian.
 The example should be a simple, practical sentence using the word in everyday life."""
 
-
 # ==========================================
 # ЛОГИКА РАБОТЫ С ИИ
 # ==========================================
 _best_model_name = None
+FALLBACK_MODEL = "gemini-2.5-flash"  # ✅ валидная модель по умолчанию
 
 async def get_available_model(client: genai.Client) -> str:
     global _best_model_name
@@ -47,10 +47,10 @@ async def get_available_model(client: genai.Client) -> str:
                 candidates.append(model_name)
     except Exception as e:
         logging.error(f"Не удалось получить список моделей: {e}")
-        return "gemini-3.5-flash" # Запасной вариант
+        return FALLBACK_MODEL
 
     if not candidates:
-        return "gemini-3.5-flash"
+        return FALLBACK_MODEL
 
     def version_key(name):
         try:
@@ -65,7 +65,12 @@ async def get_available_model(client: genai.Client) -> str:
     logging.info(f"Выбрана модель: {_best_model_name}")
     return _best_model_name
 
-async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
+
+async def get_ai_response(
+    prompt: str,
+    system_prompt: str = None,
+    json_mode: bool = False,     # ← НОВОЕ
+) -> str:
     api_key = settings.GEMINI_API_KEY
     if not api_key:
         if system_prompt == WORD_SYSTEM_PROMPT:
@@ -85,13 +90,19 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         full_prompt += f"{system_prompt}\n\n"
     full_prompt += prompt
 
+    # ← НОВОЕ: собираем конфиг один раз
+    gen_config = types.GenerateContentConfig(
+        temperature=0.3,
+        response_mime_type="application/json" if json_mode else "text/plain",
+    )
+
     max_retries = 5
     for attempt in range(max_retries):
         try:
             response = await client.aio.models.generate_content(
                 model=model_name,
                 contents=full_prompt,
-                config=types.GenerateContentConfig(temperature=0.3)
+                config=gen_config,
             )
             return response.text
 
@@ -99,10 +110,13 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
             error_msg = str(e)
             if any(code in error_msg for code in ["503", "429", "UNAVAILABLE", "ResourceExhausted"]):
                 wait_time = (2 ** (attempt + 1)) + random.uniform(0, 1)
-                logging.warning(f"Gemini API перегружен. Попытка {attempt + 1}/{max_retries}. Ждем {wait_time:.1f} сек...")
+                logging.warning(
+                    f"Gemini API перегружен. Попытка {attempt + 1}/{max_retries}. "
+                    f"Ждем {wait_time:.1f} сек..."
+                )
                 await asyncio.sleep(wait_time)
                 continue
-            
+
             if "404" in error_msg or "not found" in error_msg.lower():
                 global _best_model_name
                 _best_model_name = None
