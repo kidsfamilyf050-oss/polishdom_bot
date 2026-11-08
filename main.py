@@ -19,6 +19,7 @@ bot = Bot(token=settings.TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 scheduler = AsyncIOScheduler()
 
+# Подключаем роутеры
 dp.include_router(common.router)
 dp.include_router(test.router)
 dp.include_router(lesson.router)
@@ -35,16 +36,25 @@ async def send_reminders():
                 logger.error(f"Reminder error: {e}")
 
 async def on_startup(bot: Bot):
+    # Запускаем планировщик
     scheduler.add_job(send_reminders, 'cron', minute='*')
     scheduler.start()
     
-    await bot.set_webhook(url=settings.WEBHOOK_URL)
+    # Настраиваем вебхук
+    if os.getenv('RENDER_EXTERNAL_URL'):
+        webhook_url = f"{os.getenv('RENDER_EXTERNAL_URL').rstrip('/')}{settings.WEBHOOK_PATH}"
+    else:
+        webhook_url = f"{settings.WEBHOOK_HOST.rstrip('/')}{settings.WEBHOOK_PATH}"
+        
+    await bot.set_webhook(url=webhook_url)
+    logger.info(f"Webhook set to: {webhook_url}")
+    
     await bot.set_my_commands([
         BotCommand(command="start", description="Главное меню"),
         BotCommand(command="test", description="Тест уровня"),
         BotCommand(command="lesson", description="Новый урок"),
         BotCommand(command="profile", description="Профиль"),
-        BotCommand(command="remind", description="Напоминание (напр. /remind 21:00)"),
+        BotCommand(command="remind", description="Напоминание"),
     ])
 
 async def health_check(request):
@@ -54,6 +64,7 @@ async def main():
     app = web.Application()
     webhook_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
     webhook_handler.register(app, path=settings.WEBHOOK_PATH)
+    
     app.on_startup.append(lambda app: on_startup(bot))
     app.router.add_get('/', health_check)
     app.router.add_get('/ping', lambda r: web.Response(text='pong'))
@@ -62,7 +73,8 @@ async def main():
     await runner.setup()
     site = web.TCPSite(runner, host='0.0.0.0', port=settings.WEBHOOK_PORT)
     await site.start()
-    logger.info("Bot started")
+    
+    logger.info(f"Bot started on port {settings.WEBHOOK_PORT}")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
