@@ -7,15 +7,18 @@ class Settings(BaseSettings):
     TOKEN: str
     MONGO_URI: str
     MONGODB_DB: str = "polski"
-    OPENROUTER_API_KEY: str = ""  # Optional, can be empty
-    OPENAI_API_KEY: str = ""  # Optional, can be empty
-    CHANNEL_ID: str  # ID канала для обязательной подписки
+    
+    # Ключи для ИИ
+    GEMINI_API_KEY: str = ""
+    OPENROUTER_API_KEY: str = ""
+    
+    CHANNEL_ID: str
     
     # Webhook settings
-    WEBHOOK_HOST: str = "localhost"  # Will be overridden by RENDER_EXTERNAL_URL in production
+    WEBHOOK_HOST: str = "localhost"
     WEBHOOK_PATH: str = "/webhook"
-    WEBHOOK_PORT: int = 10000  # Port for local development
-    IS_PRODUCTION: bool = False  # Will be True on render.com
+    WEBHOOK_PORT: int = 10000
+    IS_PRODUCTION: bool = False
     
     class Config:
         env_file = ".env"
