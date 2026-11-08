@@ -33,7 +33,6 @@ def _extract_words(text: str):
     for line in block.splitlines():
         line = line.strip()
         if not line: continue
-        # Теперь мы просто берем чистое польское слово без разделителей
         pl = re.sub(r"^[\d\.\)\-\s]+", "", line).strip()
         if pl and pl not in words: words.append(pl)
     return words[:5]
@@ -74,7 +73,7 @@ async def cmd_lesson(message: Message, state: FSMContext):
 
     await message.answer(f"🔄 {name}, готовлю урок: уровень {level}, тема «{topic}»...")
 
-    # ✅ ЖЕСТКИЙ ШАБЛОН
+    # ✅ ЖЕСТКИЙ ШАБЛОН (ИСПРАВЛЕНО ПРИМЕР)
     prompt = f"""Ты — учитель польского. Ученик уровня {level}. Тема: {topic}. Грамматика: {grammar}.
 Ученик русскоязычный! Объяснения, правила и инструкции пиши ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.
 
@@ -83,19 +82,19 @@ async def cmd_lesson(message: Message, state: FSMContext):
 <b>1. Новые слова</b>
 
 <b>1. nauczyciel</b> — учитель
-<i>Przykład: Jest nauczyciel w szkole.</i> (Это учитель в школе.)
+<i>Пример: Jest nauczyciel w szkole.</i> (Это учитель в школе.)
 
 <b>2. programista</b> — программист
-<i>Przykład: Jest programista w firmie.</i> (Это программист в компании.)
+<i>Пример: Jest programista w firmie.</i> (Это программист в компании.)
 
 <b>3. architekt</b> — архитектор
-<i>Przykład: Jest architekt budynku.</i> (Это архитектор здания.)
+<i>Пример: Jest architekt budynku.</i> (Это архитектор здания.)
 
 <b>4. inżynier</b> — инженер
-<i>Przykład: Jest inżynier w laboratorium.</i> (Это инженер в лаборатории.)
+<i>Пример: Jest inżynier w laboratorium.</i> (Это инженер в лаборатории.)
 
 <b>5. zwolnienie</b> — увольнение/отпуск
-<i>Przykład: Wziął zwolnienie na rok.</i> (Он взял отпуск на год.)
+<i>Пример: Wziął zwolnienie na rok.</i> (Он взял отпуск на год.)
 
 <b>2. Правило грамматики</b>
 [Напиши объяснение правила {grammar} на русском, 2-3 предложения. Дай один пример на польском и перевод на русский.]
