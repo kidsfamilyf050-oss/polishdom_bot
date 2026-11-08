@@ -9,7 +9,7 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         if system_prompt == WORD_SYSTEM_PROMPT:
             return "słowo|слово|To jest słowo.|Это слово."
         elif system_prompt == TEST_SYSTEM_PROMPT:
-            return "A1" # Заглушка
+            return "A1"
         elif system_prompt == INTERVIEW_SYSTEM_PROMPT:
             return "Вы хорошо подготовлены к интервью."
         else:
@@ -20,8 +20,8 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         contents.append({"role": "user", "parts": [{"text": system_prompt}]})
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-    # Используем актуальную модель Gemini 1.5 Flash
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    # ✅ ИСПОЛЬЗУЕМ АКТУАЛЬНУЮ МОДЕЛЬ: gemini-2.0-flash
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     payload = {"contents": contents}
 
     try:
