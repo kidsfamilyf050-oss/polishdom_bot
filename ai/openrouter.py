@@ -39,7 +39,7 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
                     "X-Title": "PolishDom Bot"  # Optional, for tracking
                 },
                 json={
-                    "model": "openai/gpt-oss-20b:free",  # Using Claude 3.5 Sonnet as default
+                    "model": "meta-llama/llama-3.3-70b-instruct:free",  # Бесплатная и умная модель
                     "messages": messages,
                     "stream": False,
                     "temperature": 0.3,
