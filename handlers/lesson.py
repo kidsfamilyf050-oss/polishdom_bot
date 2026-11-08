@@ -1,12 +1,10 @@
 import os
 import re
-import uuid
 import asyncio
 import logging
-from gtts import gTTS
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from ai.openrouter import get_ai_response
@@ -21,15 +19,6 @@ class LessonStates(StatesGroup):
 
 LESSON_SYSTEM_PROMPT = "Ты — строгий учитель польского языка. Составляешь уроки строго по учебному плану и не выходишь за рамки уровня ученика."
 CHECK_SYSTEM_PROMPT = "Ты — строгий учитель польского. Проверяешь ответы ученика, указываешь ошибки и объясняешь их по-русски."
-
-async def generate_audio(text: str, filename: str) -> bool:
-    try:
-        tts = gTTS(text=text, lang="pl", slow=False)
-        await asyncio.to_thread(tts.save, filename)
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка gTTS: {e}")
-        return False
 
 def _pick_topic(level: str, lessons_completed: int) -> str:
     syl = get_syllabus(level)
@@ -100,7 +89,7 @@ async def cmd_lesson(message: Message, state: FSMContext):
 польское_слово|русский_перевод
 польское_слово|русский_перевод
 
-ВАЖНО: Используй в тексте только теги <b> и <code>. Обязательно закрывай их!"""
+ВАЖНО: Используй в тексте только теги <b> и <code>. Обязательно закрывай их! Выделяй польские слова тегом <b>."""
 
     lesson_raw = await get_ai_response(prompt, LESSON_SYSTEM_PROMPT)
 
@@ -118,17 +107,6 @@ async def cmd_lesson(message: Message, state: FSMContext):
         await message.answer(lesson_text, parse_mode="HTML")
     except Exception:
         await message.answer(lesson_text)
-
-    text_to_speak = re.sub(r"<[^>]+>", "", lesson_text)[:300]
-    if text_to_speak.strip():
-        filename = f"audio_{uuid.uuid4().hex}.mp3"
-        if await generate_audio(text_to_speak, filename):
-            try:
-                await message.answer_voice(FSInputFile(filename), caption="🔊 Послушай урок")
-            finally:
-                if os.path.exists(filename): os.remove(filename)
-        else:
-            await message.answer("⚠️ Аудио временно недоступно.")
 
     await state.set_state(LessonStates.waiting_for_answers)
     await state.update_data(lesson_text=lesson_text, level_at_start=level)
@@ -159,7 +137,7 @@ async def check_lesson(message: Message, state: FSMContext):
 Проверь каждый ответ строго.
 - Для правильного ответа пиши: ✅ <b>Правильно!</b>
 - Для ошибки пиши: ❌ <b>Ошибка!</b> или ⚠️ <b>Почти правильно!</b>
-- Правильные польские слова выделяй тегом <code>...</code>.
+- Правильные польские слова выделяй тегом <b>...</b> (жирным).
 - В конце разбора кратко объясни ошибки по-русски.
 
 ВАЖНО: в самом конце ответа на новой строке добавь метку:
