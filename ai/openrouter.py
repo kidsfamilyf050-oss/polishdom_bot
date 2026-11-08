@@ -3,25 +3,24 @@ import logging
 from config import settings
 
 async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
-    api_key = getattr(settings, "GEMINI_API_KEY", None)
+    api_key = settings.GEMINI_API_KEY
     if not api_key:
         logging.warning("GEMINI_API_KEY not provided. Using fallback responses.")
-        # (Оставьте здесь ваши старые fallback-ответы, если они нужны)
         if system_prompt == WORD_SYSTEM_PROMPT:
             return "słowo|слово|To jest słowo.|Это слово."
         elif system_prompt == TEST_SYSTEM_PROMPT:
-            return "Ваш уровень: [A2]. Вы показали базовые знания польского языка."
+            return "A1" # Заглушка
         elif system_prompt == INTERVIEW_SYSTEM_PROMPT:
-            return "Вы хорошо подготовлены к интервью. Продолжайте практиковаться."
+            return "Вы хорошо подготовлены к интервью."
         else:
-            return "Функция недоступна без API ключа Google Gemini."
+            return "⚠️ Ошибка: API ключ Google Gemini не добавлен в Render."
 
-    # Формируем запрос к Gemini API
     contents = []
     if system_prompt:
         contents.append({"role": "user", "parts": [{"text": system_prompt}]})
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
+    # Используем актуальную модель Gemini 1.5 Flash
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     payload = {"contents": contents}
 
@@ -38,19 +37,6 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         logging.error(f"Error in get_ai_response (Gemini): {str(e)}")
         return f"Ошибка при запросе к API: {str(e)}"
 
-# Системные промпты для разных задач
-INTERVIEW_SYSTEM_PROMPT = """You are a Polish language interview assistant for Karta Polaka (Polish Card) preparation.
-Conduct mock interviews in Russian, helping users prepare for real Polish Card interviews.
-Provide constructive feedback and suggestions for improvement.
-Be encouraging and supportive while maintaining professionalism."""
-
-TEST_SYSTEM_PROMPT = """You are a Polish language assessment expert. 
-Evaluate the user's Polish language level based on their responses and provide detailed feedback in Russian.
-Determine their level according to CEFR standards (A1, A2, B1, B2, C1, C2).
-Provide specific recommendations for improvement and next steps in their language learning journey."""
-
-WORD_SYSTEM_PROMPT = """You are a Polish language teacher. Generate a word in Polish based on the given topic. 
-Always respond in the format: {polish_word}|{russian_translation}|{example_in_polish}|{example_translation_in_russian}
-The word and example should be appropriate for the student's level. 
-The translations MUST be in Russian.
-The example should be a simple, practical sentence using the word in everyday life."""
+INTERVIEW_SYSTEM_PROMPT = """You are a Polish language interview assistant for Karta Polaka preparation. Conduct mock interviews in Russian."""
+TEST_SYSTEM_PROMPT = """You are a strict Polish language assessment expert."""
+WORD_SYSTEM_PROMPT = """You are a Polish language teacher. Always respond in the format: {polish_word}|{russian_translation}|{example_in_polish}|{example_translation_in_russian}."""
