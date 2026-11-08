@@ -27,33 +27,33 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
     payload = {
         "model": "openrouter/free",
         "messages": messages,
-        "temperature": 0.3,
-        "max_tokens": 4096  # Увеличен лимит токенов, чтобы модели хватало и на размышления, и на ответ
+        "temperature": 0.4,
+        "max_tokens": 4096
     }
 
-    max_retries = 3
+    max_retries = 5 # Увеличили количество попыток, чтобы обойти тупые модели
     for attempt in range(max_retries):
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=payload, timeout=40) as response:
+                async with session.post(url, headers=headers, json=payload, timeout=45) as response:
                     if response.status == 200:
                         data = await response.json()
                         
                         if "choices" in data and len(data["choices"]) > 0:
                             message = data["choices"][0].get("message", {})
-                            content = message.get("content")
+                            content = message.get("content", "")
                             
-                            # 🛡️ Защита: если модель вернула пустой content, берем текст из reasoning
+                            # 🛡️ ЗАЩИТА ОТ РАЗМЫШЛЕНИЙ (Thinking Process)
                             if not content:
-                                reasoning = message.get("reasoning") or message.get("reasoning_content")
-                                if reasoning:
-                                    logging.info("Контент пустой, используем текст из поля reasoning.")
-                                    return reasoning
-                                else:
-                                    logging.warning("OpenRouter вернул пустой ответ. Повторный запрос...")
-                                    await asyncio.sleep(1)
-                                    continue
+                                continue # Если пусто, пробуем еще раз
+                                
+                            lower_content = content.lower()
+                            if "thinking process" in lower_content or "analyze user request" in lower_content or "internal monologue" in lower_content:
+                                logging.warning("Модель начала 'думать вслух'. Пропускаем ответ и пробуем снова...")
+                                await asyncio.sleep(1)
+                                continue
                             
+                            # Если ответ чистый, возвращаем его
                             return content
                     
                     error_text = await response.text()
@@ -69,4 +69,4 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
             logging.error(f"Error connecting to OpenRouter: {e}")
             await asyncio.sleep(2)
 
-    return "⚠️ Сервера OpenRouter перегружены или вернули пустой ответ. Пожалуйста, попробуйте еще раз через минуту."
+    return "⚠️ Сервера OpenRouter вернули ошибку или модель запуталась. Попробуйте еще раз через минуту."
