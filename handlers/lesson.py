@@ -45,6 +45,15 @@ def _strip_words_block(text: str) -> str:
 def _strip_perfect_marker(text: str) -> str:
     return text.replace("[PERFECT]", "").rstrip()
 
+def _clean_html(text: str) -> str:
+    """Убирает теги, если их не понимает Telegram."""
+    # Заменяем жирный шрифт на обычный
+    text = text.replace("<b>", "").replace("</b>", "")
+    text = text.replace("<i>", "").replace("</i>", "")
+    # Убираем любые другие теги вроде <student>
+    text = re.sub(r'<[^>]+>', '', text)
+    return text
+
 @router.message(Command("lesson"))
 async def cmd_lesson(message: Message, state: FSMContext):
     if await state.get_state() == LessonStates.waiting_for_answers.state:
@@ -76,7 +85,7 @@ async def cmd_lesson(message: Message, state: FSMContext):
 Структура:
 1. 5 новых слов по теме «{topic}» — слово, перевод, пример и перевод примера.
 2. Правило грамматики ({grammar}) — кратко, с 1-2 примерами.
-3. Короткий диалог (3-4 реплики) с переводом на русский.
+3. Короткий диалог (3-4 реплики) с переводом на русский. (Пиши диалог через тире, БЕЗ тегов <student> и <teacher>!)
 4. Ровно 3 задания на перевод с русского на польский.
 
 {review_block}
@@ -89,7 +98,9 @@ async def cmd_lesson(message: Message, state: FSMContext):
 польское_слово|русский_перевод
 польское_слово|русский_перевод
 
-ВАЖНО: Используй в тексте только теги <b> и <code>. Обязательно закрывай их! Выделяй польские слова тегом <b>."""
+ВАЖНО: Используй в тексте ТОЛЬКО теги <b> и <i> (для жирного и курсива). 
+НИКОГДА не используй теги вроде <student>, <teacher>, <speaker> и т.д.!
+"""
 
     lesson_raw = await get_ai_response(prompt, LESSON_SYSTEM_PROMPT)
 
@@ -105,8 +116,10 @@ async def cmd_lesson(message: Message, state: FSMContext):
 
     try:
         await message.answer(lesson_text, parse_mode="HTML")
-    except Exception:
-        await message.answer(lesson_text)
+    except Exception as e:
+        logger.error(f"Ошибка HTML в уроке: {e}")
+        clean_text = _clean_html(lesson_text)
+        await message.answer(clean_text)
 
     await state.set_state(LessonStates.waiting_for_answers)
     await state.update_data(lesson_text=lesson_text, level_at_start=level)
@@ -140,7 +153,8 @@ async def check_lesson(message: Message, state: FSMContext):
 - Правильные польские слова выделяй тегом <b>...</b> (жирным).
 - В конце разбора кратко объясни ошибки по-русски.
 
-ВАЖНО: в самом конце ответа на новой строке добавь метку:
+ВАЖНО: Используй ТОЛЬКО теги <b> и <i>. Не придумывай другие теги!
+В самом конце ответа на новой строке добавь метку:
 - Если ВСЕ 3 ответа абсолютно правильные: [PERFECT]
 - Если есть хоть одна ошибка: НЕ пиши [PERFECT]."""
 
@@ -156,8 +170,10 @@ async def check_lesson(message: Message, state: FSMContext):
 
     try:
         await message.answer(feedback_text, parse_mode="HTML")
-    except Exception:
-        await message.answer(feedback_text)
+    except Exception as e:
+        logger.error(f"Ошибка HTML в проверке: {e}")
+        clean_text = _clean_html(feedback_text)
+        await message.answer(clean_text)
 
     await db.increment_field(message.from_user.id, "lessons_completed", 1)
     if is_perfect:
