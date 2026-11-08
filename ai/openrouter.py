@@ -35,7 +35,7 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         try:
             # Асинхронный вызов API через SDK
             response = await client.aio.models.generate_content(
-                model='gemini-flash-latest', # Используем актуальный псевдоним
+                model='gemini-3.5-flash', # Используем актуальный псевдоним
                 contents=full_prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.3,
