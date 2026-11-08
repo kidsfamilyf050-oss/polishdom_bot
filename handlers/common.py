@@ -28,7 +28,8 @@ async def cmd_start(message: Message, state: FSMContext):
         "Команды:\n"
         "/test — Определить уровень\n"
         "/lesson — Начать урок\n"
-        "/remind — Настроить напоминания\n"
+        "/remind — Напоминания\n"
+        "/setlevel — Сменить уровень вручную\n"
         "/profile — Мой профиль"
     )
 
@@ -38,51 +39,11 @@ async def process_name(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(f"Приятно познакомиться, {message.text}! Напиши /test, чтобы мы определили твой уровень.", reply_markup=ReplyKeyboardRemove())
 
-@router.message(Command("profile"))
-async def cmd_profile(message: Message):
-    user = await db.get_user(message.from_user.id)
-    if not user: return await message.answer("Напиши /start.")
-    await message.answer(
-        f"👤 Имя: {user.get('name')}\n"
-        f"📊 Уровень: {user.get('language_level')}\n"
-        f"📚 Слов изучено: {len(user.get('learned_words', []))}\n"
-        f"⏰ Напоминание: {user.get('reminder_time', 'Выключено')}"
-    )
-
-@router.message(Command("remind"))
-async def cmd_remind(message: Message):
-    # Создаем кнопки с популярным временем
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="09:00", callback_data="remind_09:00"),
-            InlineKeyboardButton(text="12:00", callback_data="remind_12:00"),
-            InlineKeyboardButton(text="15:00", callback_data="remind_15:00")
-        ],
-        [
-            InlineKeyboardButton(text="18:00", callback_data="remind_18:00"),
-            InlineKeyboardButton(text="20:00", callback_data="remind_20:00"),
-            InlineKeyboardButton(text="21:00", callback_data="remind_21:00")
-        ],
-        [
-            InlineKeyboardButton(text="22:00", callback_data="remind_22:00"),
-            InlineKeyboardButton(text="❌ Отключить", callback_data="remind_off")
-        ]
-    ])
-    await message.answer(
-        "⏰ Выбери удобное время для ежедневных напоминаний.\n\n"
-        "⚠️ *Обрати внимание:* сервер работает по времени UTC (на 5 часов меньше, чем в Казахстане). "
-        "Если хочешь получать напоминание в 21:00 по времени Алматы, выбирай **16:00**.", 
-        reply_markup=keyboard, 
-        parse_mode="Markdown"
-    )
-
-@router.callback_query(F.data.startswith("remind_"))
-async def process_remind_time(callback: CallbackQuery):
-    time_str = callback.data.split("_")[1]
-    if time_str == "off":
-        await db.update_user_field(callback.from_user.id, "reminder_time", None)
-        await callback.message.edit_text("🔕 Напоминания отключены.")
-    else:
-        await db.update_user_field(callback.from_user.id, "reminder_time", time_str)
-        await callback.message.edit_text(f"✅ Отлично! Я буду напоминать тебе каждый день в {time_str} (UTC).")
-    await callback.answer()
+@router.message(Command("setlevel"))
+async def cmd_setlevel(message: Message):
+    args = message.text.split()
+    if len(args) < 2 or args[1] not in ["A0", "A1", "A2", "B1"]:
+        return await message.answer("Напиши уровень, например: /setlevel A1 (доступно: A0, A1, A2, B1)")
+    
+    await db.update_user_field(message.from_user.id, "language_level", args[1])
+    await message.answer(f"✅ Твой уровень изменен на {args[1]}.")
