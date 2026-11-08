@@ -23,13 +23,13 @@ async def start_test(message: Message, state: FSMContext):
 async def test_q1(message: Message, state: FSMContext):
     await state.update_data(ans1=message.text)
     await state.set_state(TestStates.q2)
-    await message.answer("Вопрос 2: Переведи на польский: «Мы живем в Казахстане».")
+    await message.answer("Вопрос 2: Переведи на польский: «Вчера мы жили в Казахстане, а завтра поедем в Польшу».") # Добавили прошедшее и будущее время
 
 @router.message(TestStates.q2)
 async def test_q2(message: Message, state: FSMContext):
     await state.update_data(ans2=message.text)
     await state.set_state(TestStates.q3)
-    await message.answer("Вопрос 3: Как сказать «Я работаю, а жена отдыхает»?")
+    await message.answer("Вопрос 3: Как сказать «Я работаю, а жена отдыхает, потому что она устала»?") # Добавили сложное предложение
 
 @router.message(TestStates.q3)
 async def test_q3(message: Message, state: FSMContext):
@@ -39,18 +39,25 @@ async def test_q3(message: Message, state: FSMContext):
     
     await message.answer("🔄 Анализирую ответы...")
     
+    # ЖЕСТКИЙ ПРОМПТ
     prompt = f"""
-    Оцени уровень польского (A0, A1, A2, B1...).
+    Ты — строгий экзаменатор по польскому языку. Оцени уровень (A0, A1, A2, B1).
     Ответ 1: {data['ans1']}
     Ответ 2: {data['ans2']}
     Ответ 3: {data['ans3']}
-    Если ответы написаны на русском (кириллицей) — ставь строго A0.
-    Выведи только код уровня (например, A1).
+    
+    ПРАВИЛА ОЦЕНКИ:
+    - Если ответы на русском (кириллицей) или это просто набор слов — ставь A0.
+    - Если ученик использует ТОЛЬКО настоящее время (mam, mieszkam, pracuję) и простые предложения — ставь СТРОГО A1.
+    - Если ученик правильно использовал прошедшее время (mieszkałem) и будущее (będę), а также сложные союзы (ponieważ, dlatego) — ставь A2.
+    - Не завышай уровень из вежливости! Будь строг.
+    
+    Выведи только код уровня (A0, A1, A2, B1).
     """
     
     result = await get_ai_response(prompt, TEST_SYSTEM_PROMPT)
-    match = re.search(r'(A[0-2]|B1|B2|C1|C2)', result)
-    level = match.group(0) if match else "A0"
+    match = re.search(r'(A[0-2]|B1)', result)
+    level = match.group(0) if match else "A1"
     
     await db.update_user_field(message.from_user.id, "language_level", level)
     await message.answer(f"Твой уровень: {level}.\nТеперь напиши /lesson, чтобы начать обучение!")
