@@ -1,4 +1,7 @@
-import os, uuid, edge_tts
+import os
+import uuid
+import asyncio
+import edge_tts
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
@@ -12,6 +15,30 @@ router = Router()
 class LessonStates(StatesGroup):
     waiting_for_answers = State()
 
+async def generate_audio_with_retry(text: str, filename: str):
+    """Генерирует аудио с повторными попытками и запасным голосом."""
+    # Список голосов для попыток
+    voices_to_try = [
+        "pl-PL-MarekNeural",  # Основной мужской голос
+        "pl-PL-ZofiaNeural"   # Запасной женский голос
+    ]
+    
+    for voice in voices_to_try:
+        for attempt in range(3):  # 3 попытки для каждого голоса
+            try:
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(filename)
+                return True  # Успех
+            except edge_tts.exceptions.NoAudioReceived:
+                logging.warning(f"Не удалось получить аудио с голосом {voice}. Попытка {attempt + 1}/3.")
+                await asyncio.sleep(1)  # Небольшая пауза перед повтором
+            except Exception as e:
+                logging.error(f"Неизвестная ошибка edge-tts с голосом {voice}: {e}")
+                break  # Переходим к следующему голосу
+    
+    return False  # Все попытки провалились
+
+
 @router.message(Command("lesson"))
 async def cmd_lesson(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
@@ -20,7 +47,6 @@ async def cmd_lesson(message: Message, state: FSMContext):
     
     await message.answer(f"🔄 {name}, готовлю урок для уровня {level}...")
     
-    # Просим нейросеть использовать HTML для красивого форматирования
     prompt = f"""
     Ты — опытный репетитор польского. Составь мини-урок для ученика уровня {level}.
     Структура:
@@ -35,24 +61,25 @@ async def cmd_lesson(message: Message, state: FSMContext):
     """
     
     lesson_text = await get_ai_response(prompt)
-    
-    # Отправляем урок с включенным HTML-форматированием
     await message.answer(lesson_text, parse_mode="HTML")
     
-    # Генерируем аудио
+    # Генерируем аудио с повторными попытками
     audio_text = "Урок польского. Слушай внимательно."
-    
     filename = f"audio_{uuid.uuid4().hex}.mp3"
-    voice = os.getenv("EDGE_TTS_VOICE", "pl-PL-MarekNeural")
-    communicate = edge_tts.Communicate(audio_text, voice)
-    await communicate.save(filename)
     
-    await message.answer_voice(FSInputFile(filename), caption="🔊 Аудио к уроку")
-    os.remove(filename)
+    success = await generate_audio_with_retry(audio_text, filename)
+    
+    if success:
+        await message.answer_voice(FSInputFile(filename), caption="🔊 Аудио к уроку")
+        os.remove(filename)
+    else:
+        await message.answer("⚠️ Не удалось создать аудио. Попробуйте позже.")
+        logging.error("Все попытки генерации аудио провалились.")
     
     await state.set_state(LessonStates.waiting_for_answers)
     await state.update_data(current_lesson=lesson_text)
     await message.answer("📝 Напиши ответы на 3 задания через точку с запятой (;).")
+
 
 @router.message(LessonStates.waiting_for_answers)
 async def check_lesson(message: Message, state: FSMContext):
@@ -62,7 +89,6 @@ async def check_lesson(message: Message, state: FSMContext):
     
     await message.answer("🔄 Проверяю твои ответы...")
     
-    # Просим нейросеть сделать красивый и четкий разбор
     prompt = f"""
     Вот текст урока:
     {lesson_text}
@@ -79,8 +105,6 @@ async def check_lesson(message: Message, state: FSMContext):
     """
     
     feedback = await get_ai_response(prompt)
-    
-    # Отправляем проверку с включенным HTML-форматированием
     await message.answer(feedback, parse_mode="HTML")
     
     await state.clear()
