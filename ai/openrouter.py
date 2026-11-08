@@ -20,8 +20,8 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         contents.append({"role": "user", "parts": [{"text": system_prompt}]})
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-    # ✅ ИСПОЛЬЗУЕМ САМУЮ АКТУАЛЬНУЮ МОДЕЛЬ: gemini-3.8-flash
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+    # ✅ ИСПОЛЬЗУЕМ ПСЕВДОНИМ, КОТОРЫЙ ВСЕГДА УКАЗЫВАЕТ НА АКТУАЛЬНУЮ FLASH-МОДЕЛЬ
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
     payload = {"contents": contents}
 
     try:
