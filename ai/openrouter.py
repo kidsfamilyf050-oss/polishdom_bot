@@ -24,9 +24,9 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         "Content-Type": "application/json"
     }
     
-    # Бесплатная и очень умная модель (Llama 3.3 70B)
+    # ✅ ИСПОЛЬЗУЕМ АВТОМАТИЧЕСКИЙ БЕСПЛАТНЫЙ РОУТЕР
     payload = {
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "model": "openrouter/free",
         "messages": messages,
         "temperature": 0.3
     }
