@@ -22,29 +22,30 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         contents.append({"role": "user", "parts": [{"text": system_prompt}]})
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-    # ✅ Используем модель Flash-Lite (менее загруженная, но всё ещё бесплатная)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={api_key}"
+    # ✅ НОВЫЙ СПОСОБ: передаем ключ в заголовке
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key  # <-- Ключ передается здесь
+    }
     payload = {"contents": contents}
 
-    # --- Улучшенная логика повторных попыток с экспоненциальной задержкой и джиттером ---
-    max_retries = 5  # Увеличили количество попыток
+    max_retries = 5
     for attempt in range(max_retries):
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as response:
+                # Обратите внимание: headers добавлены в запрос
+                async with session.post(url, headers=headers, json=payload) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data["candidates"][0]["content"]["parts"][0]["text"]
                     
-                    # Обрабатываем ошибки, которые можно повторить
                     if response.status in [429, 500, 502, 503, 504]:
-                        # Экспоненциальная задержка: 2, 4, 8, 16, 32 секунды + случайный джиттер (0-1 сек)
                         wait_time = (2 ** (attempt + 1)) + random.uniform(0, 1)
                         logging.warning(f"Gemini API вернул {response.status}. Попытка {attempt + 1}/{max_retries}. Ждем {wait_time:.1f} сек...")
                         await asyncio.sleep(wait_time)
                         continue
                     
-                    # Для всех остальных ошибок (например, 400, 404) прекращаем попытки
                     error_text = await response.text()
                     logging.error(f"Gemini API error (не повторяем): {response.status} - {error_text}")
                     return f"Ошибка API: {response.status} - {error_text}"
@@ -57,7 +58,6 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
             logging.error(f"Неизвестная ошибка в get_ai_response: {e}")
             return f"Ошибка при запросе к API: {str(e)}"
 
-    # Если все попытки исчерпаны
     logging.error(f"Все {max_retries} попыток выполнить запрос к Gemini API провалились.")
     return "⚠️ Не удалось получить ответ от ИИ после нескольких попыток. Сервера Google перегружены. Попробуйте, пожалуйста, еще раз через пару минут."
 
