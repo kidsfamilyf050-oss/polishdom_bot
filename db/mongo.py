@@ -1,5 +1,4 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
 from config import settings
 from datetime import datetime
 import logging
@@ -16,25 +15,21 @@ class Database:
         user_data = {
             "user_id": user_id,
             "username": username,
-            "language_level": "A1"
+            "name": None,
+            "language_level": "A0",
+            "reminder_time": None,
+            "learned_words": []
         }
         await self.db.users.insert_one(user_data)
         return user_data
 
-    async def update_user_level(self, user_id: int, level: str) -> bool:
-        """Update user's language level in the database."""
-        try:
-            result = await self.db.users.update_one(
-                {"user_id": user_id},
-                {"$set": {"language_level": level}},
-                upsert=True
-            )
-            return bool(result.modified_count > 0 or result.upserted_id)
-        except Exception as e:
-            logging.error(f"Error updating user level: {e}")
-            return False
+    async def update_user_field(self, user_id: int, field: str, value):
+        await self.db.users.update_one({"user_id": user_id}, {"$set": {field: value}})
 
+    async def add_learned_word(self, user_id: int, word: str):
+        await self.db.users.update_one({"user_id": user_id}, {"$addToSet": {"learned_words": word}})
 
+    async def get_users_with_reminders(self):
+        return self.db.users.find({"reminder_time": {"$ne": None}}).to_list(length=None)
 
-
-db = Database() 
+db = Database()
