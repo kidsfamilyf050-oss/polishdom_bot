@@ -20,6 +20,7 @@ async def cmd_lesson(message: Message, state: FSMContext):
     
     await message.answer(f"🔄 {name}, готовлю урок для уровня {level}...")
     
+    # Просим нейросеть использовать HTML для красивого форматирования
     prompt = f"""
     Ты — опытный репетитор польского. Составь мини-урок для ученика уровня {level}.
     Структура:
@@ -27,22 +28,23 @@ async def cmd_lesson(message: Message, state: FSMContext):
     2. 1 правило грамматики (кратко).
     3. Короткий диалог (3-4 реплики) с переводом.
     4. 3 задания (перевод с русского на польский).
-    Форматируй текст красиво с эмодзи. Не пиши лишнего.
+    
+    ВАЖНО: Используй HTML-теги для форматирования! 
+    Заголовки выделяй тегом <b>...</b>. Польские слова выделяй тегом <code>...</code>. 
+    Переводы делай курсивом <i>...</i>. Не пиши лишнего текста, только урок.
     """
     
     lesson_text = await get_ai_response(prompt)
     
-    await message.answer(lesson_text)
+    # Отправляем урок с включенным HTML-форматированием
+    await message.answer(lesson_text, parse_mode="HTML")
     
-    # Генерируем аудио для диалога (вырезаем примерный текст диалога)
-    # Для простоты озвучим просто 3 случайных польских слова из ответа
-    # В идеале нужно просить ИИ отдать диалог отдельным блоком, но пока так:
-    
-    audio_text = f"Урок польского. Уровень {level}. Слушай внимательно."
+    # Генерируем аудио
+    audio_text = "Урок польского. Слушай внимательно."
     
     filename = f"audio_{uuid.uuid4().hex}.mp3"
     voice = os.getenv("EDGE_TTS_VOICE", "pl-PL-MarekNeural")
-    communicate = edge_tts.Communicate(audio_text, voice) # Тут можно передать текст диалога
+    communicate = edge_tts.Communicate(audio_text, voice)
     await communicate.save(filename)
     
     await message.answer_voice(FSInputFile(filename), caption="🔊 Аудио к уроку")
@@ -60,18 +62,26 @@ async def check_lesson(message: Message, state: FSMContext):
     
     await message.answer("🔄 Проверяю твои ответы...")
     
+    # Просим нейросеть сделать красивый и четкий разбор
     prompt = f"""
     Вот текст урока:
     {lesson_text}
     
     Ученик прислал ответы на задания: {user_answers}
     
-    Проверь каждый ответ. Укажи, где ошибка, объясни правило и дай правильный вариант.
-    Будь строгим, но дружелюбным. Как в примерах: "Ошибка №1... Правильно...".
+    Проверь каждый ответ. Сделай это строго и дружелюбно.
+    
+    ВАЖНО: Используй HTML-теги для форматирования, чтобы текст выглядел красиво в Telegram.
+    Для правильных ответов пиши: ✅ <b>Правильно!</b>
+    Для ошибок пиши: ❌ <b>Ошибка!</b> или ⚠️ <b>Почти правильно!</b>
+    Объяснения выделяй обычным текстом.
+    Правильные польские слова и предложения обязательно выделяй тегом <code>...</code>.
     """
     
     feedback = await get_ai_response(prompt)
-    await message.answer(feedback)
+    
+    # Отправляем проверку с включенным HTML-форматированием
+    await message.answer(feedback, parse_mode="HTML")
     
     await state.clear()
     await message.answer("Отлично поработали! Напиши /lesson для следующего урока.")
