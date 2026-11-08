@@ -5,14 +5,10 @@ from config import settings
 from google import genai
 from google.genai import types
 
-# ==========================================
-# СИСТЕМНЫЕ ПРОМПТЫ
-# ==========================================
 INTERVIEW_SYSTEM_PROMPT = """You are a Polish language interview assistant for Karta Polaka preparation."""
 TEST_SYSTEM_PROMPT = """You are a strict Polish language assessment expert."""
 WORD_SYSTEM_PROMPT = """You are a Polish language teacher. Always respond in the format: {polish_word}|{russian_translation}|{example_in_polish}|{example_translation_in_russian}."""
 
-# Глобальная переменная для кэширования лучшей модели
 _best_model_name = None
 
 async def get_available_model(client: genai.Client) -> str:
@@ -27,20 +23,18 @@ async def get_available_model(client: genai.Client) -> str:
         pager = await client.aio.models.list()
         async for model in pager:
             model_name = model.name
-            # Ищем только Flash модели (они быстрые и бесплатные)
+            # ✅ Убрали сломанную проверку supported_generation_methods, ищем просто по имени
             if 'flash' in model_name.lower():
-                # Очищаем имя от префикса "models/"
                 clean_name = model_name.replace("models/", "")
                 candidates.append(clean_name)
     except Exception as e:
         logging.error(f"Не удалось получить список моделей: {e}")
-        return "gemini-1.5-flash" # Запасной вариант
+        return "gemini-1.5-flash" # Аварийный запас
 
     if not candidates:
-        logging.warning("Не найдено ни одной подходящей модели Flash. Используем дефолтную.")
         return "gemini-1.5-flash"
 
-    # Сортируем, чтобы выбрать самую новую версию (например, 2.0 новее, чем 1.5)
+    # Сортируем по версии (2.0 новее 1.5)
     def version_key(name):
         try:
             parts = name.split('-')
@@ -62,10 +56,7 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         return "⚠️ Ошибка: API ключ Google Gemini не добавлен в Render."
 
     client = genai.Client(api_key=api_key)
-    
-    # Получаем актуальную модель
     model_name = await get_available_model(client)
-
     full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
 
     max_retries = 5
@@ -79,10 +70,8 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
             return response.text
         except Exception as e:
             error_msg = str(e)
-            
-            # Если модель вдруг удалили (404), сбрасываем кэш и ищем новую
+            # Если модель удалили (404), сбрасываем кэш и ищем новую
             if "404" in error_msg or "not found" in error_msg.lower():
-                logging.warning(f"Модель {model_name} не найдена. Ищем новую...")
                 global _best_model_name
                 _best_model_name = None
                 model_name = await get_available_model(client)
@@ -94,7 +83,7 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
                 await asyncio.sleep(wait_time)
                 continue
                 
-            logging.error(f"Ошибка Gemini API (SDK): {error_msg}")
+            logging.error(f"Ошибка Gemini API: {error_msg}")
             return f"Ошибка API: {error_msg}"
 
     return "⚠️ Сервера Google перегружены. Попробуйте позже."
