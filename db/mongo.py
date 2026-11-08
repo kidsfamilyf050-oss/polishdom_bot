@@ -19,7 +19,7 @@ class Database:
             "language_level": "A0",
             "reminder_time": None,
             "learned_words": [],
-            "timezone": "Asia/Almaty"  # <-- Часовой пояс по умолчанию для Казахстана
+            "timezone": "Asia/Almaty"
         }
         await self.db.users.insert_one(user_data)
         return user_data
@@ -31,7 +31,8 @@ class Database:
         await self.db.users.update_one({"user_id": user_id}, {"$addToSet": {"learned_words": word}})
 
     async def get_users_with_reminders(self):
-        # Теперь возвращаем всех, у кого есть напоминание, включая их часовой пояс
-        return self.db.users.find({"reminder_time": {"$ne": None}}).to_list(length=None)
+        # Вот здесь был баг, добавлен await
+        cursor = self.db.users.find({"reminder_time": {"$ne": None}})
+        return await cursor.to_list(length=None)
 
 db = Database()
