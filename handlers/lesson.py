@@ -1,4 +1,8 @@
-import os, uuid, json, asyncio, logging
+import os
+import re
+import uuid
+import asyncio
+import logging
 from gtts import gTTS
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -12,213 +16,278 @@ from syllabus import get_syllabus, next_level
 router = Router()
 logger = logging.getLogger(__name__)
 
+
 class LessonStates(StatesGroup):
     waiting_for_answers = State()
 
-LESSON_SYSTEM_PROMPT = "Ты репетитор польского. Верни ТОЛЬКО валидный JSON, без markdown и объяснений."
-CHECK_SYSTEM_PROMPT  = "Ты строгий экзаменатор польского. Верни ТОЛЬКО валидный JSON, без markdown и объяснений."
 
-def _strip_tags(s: str) -> str:
-    for t in ("<b>", "</b>", "<i>", "</i>", "<code>", "</code>", "<pre>", "</pre>"):
-        s = s.replace(t, "")
-    return s
+# Системные промпты для урока и проверки
+LESSON_SYSTEM_PROMPT = (
+    "Ты — строгий учитель польского языка. Составляешь уроки строго по учебному "
+    "плану и не выходишь за рамки уровня ученика."
+)
 
-def _parse_json(raw: str):
-    if not raw or raw.startswith("⚠️") or raw.startswith("Ошибка"):
-        return None
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`").strip()
-        if raw.startswith("json"):
-            raw = raw[4:].strip()
-    return json.loads(raw)
+CHECK_SYSTEM_PROMPT = (
+    "Ты — строгий учитель польского. Проверяешь ответы ученика, указываешь "
+    "ошибки и объясняешь их по-русски."
+)
 
-async def _tts(text, path) -> bool:
+
+# ---------- вспомогательные функции ----------
+
+async def generate_audio(text: str, filename: str) -> bool:
     try:
-        await asyncio.to_thread(gTTS(text=text, lang="pl").save, path)
+        tts = gTTS(text=text, lang="pl", slow=False)
+        await asyncio.to_thread(tts.save, filename)
         return True
     except Exception as e:
-        logger.error(f"gTTS: {e}")
+        logger.error(f"Ошибка gTTS: {e}")
         return False
 
-def _lesson_html(l: dict) -> str:
-    out = ["<b>📚 Новый урок</b>\n", "<b>🆕 Новые слова:</b>"]
-    for i, w in enumerate(l.get("words", []), 1):
-        out.append(f"{i}. <b>{w['pl']}</b> — {w['ru']}\n   <i>{w['example_pl']}</i> — {w['example_ru']}")
-    g = l.get("grammar") or {}
-    if g:
-        out.append(f"\n<b>📖 {g.get('title','')}</b>\n{g.get('explanation','')}")
-    out.append("\n<b>💬 Диалог:</b>")
-    for ln in l.get("dialogue", []):
-        out.append(f"<b>{ln['speaker']}:</b> {ln['pl']}\n<i>({ln['ru']})</i>")
-    out.append("\n<b>📝 Задания:</b>")
-    for i, t in enumerate(l.get("tasks", []), 1):
-        out.append(f"{i}. {t['ru']}")
-    return "\n".join(out)
 
-def _feedback_html(fb: dict, correct: int, total: int, streak: int, leveled_to: str | None) -> str:
-    out = []
-    for r in fb.get("results", []):
-        icon = "✅" if r.get("is_correct") else "❌"
-        out.append(f"{icon} <b>Задание {r.get('index')}:</b>")
-        out.append(f"  Твой ответ: {r.get('user_answer')}")
-        out.append(f"  Правильно: <code>{r.get('correct_answer')}</code>")
-        if r.get("explanation"):
-            out.append(f"  💡 {r['explanation']}")
-    if fb.get("overall"):
-        out.append(f"\n<b>💬 Комментарий:</b> {fb['overall']}")
-    out.append(f"\n📊 Результат: {correct}/{total}")
-    out.append(f"🔥 Серия идеальных уроков: {streak}/5")
-    if leveled_to:
-        out.append(f"\n🎉🎉 <b>Поздравляю! Новый уровень: {leveled_to}!</b>")
-    return "\n".join(out)
+def _pick_topic(level: str, lessons_completed: int) -> str:
+    """Выбирает тему по кругу в зависимости от числа пройденных уроков."""
+    syl = get_syllabus(level)
+    topics = syl.get("topics") or ["общая тема"]
+    return topics[lessons_completed % len(topics)]
+
+
+def _extract_words(text: str):
+    """Достаёт список слов из скрытого блока [[WORDS]]."""
+    idx = text.find("[[WORDS]]")
+    if idx == -1:
+        return []
+    block = text[idx + len("[[WORDS]]"):]
+    words = []
+    for line in block.splitlines():
+        line = line.strip()
+        if not line or "|" not in line:
+            continue
+        pl = line.split("|", 1)[0].strip()
+        # убираем возможные нумерации вроде "1. ", "1) ", "- "
+        pl = re.sub(r"^[\d\.\)\-\s]+", "", pl).strip()
+        if pl and pl not in words:
+            words.append(pl)
+    return words[:5]
+
+
+def _strip_words_block(text: str) -> str:
+    """Убирает блок [[WORDS]] и всё после него из текста урока."""
+    idx = text.find("[[WORDS]]")
+    if idx == -1:
+        return text
+    return text[:idx].rstrip()
+
+
+def _strip_perfect_marker(text: str) -> str:
+    return text.replace("[PERFECT]", "").rstrip()
+
+
+# ---------- команда /lesson ----------
 
 @router.message(Command("lesson"))
 async def cmd_lesson(message: Message, state: FSMContext):
     if await state.get_state() == LessonStates.waiting_for_answers.state:
-        return await message.answer("⚠️ У тебя уже есть активный урок. Ответь на задания или /cancel.")
+        await message.answer(
+            "У тебя уже есть активный урок. Ответь на задания или дождись проверки."
+        )
+        return
+
     user = await db.get_user(message.from_user.id)
     if not user:
-        return await message.answer("Сначала напиши /start.")
+        await message.answer("Сначала напиши /start.")
+        return
+
     level = user.get("language_level", "A0")
     name = user.get("name") or "друг"
+    lessons_completed = user.get("lessons_completed", 0) or 0
+    learned_words = user.get("learned_words", []) or []
+
     syl = get_syllabus(level)
+    topic = _pick_topic(level, lessons_completed)
+    grammar = ", ".join(syl.get("grammar") or [])
 
-    review = await db.get_words_for_review(message.from_user.id, limit=5)
+    # 5 последних изученных слов → в промпт на повторение
+    review_words = learned_words[-5:] if learned_words else []
     review_block = ""
-    if review:
-        lines = "\n".join(f"- {w['word']} — {w['translation']}" for w in review)
-        review_block = f"\n\nВключи в урок слова на повторение:\n{lines}"
-
-    await message.answer(f"🔄 {name}, готовлю урок для уровня {level}...")
-
-    prompt = f"""Составь урок польского для уровня {level}.
-
-ТЕМЫ УРОВНЯ: {', '.join(syl['topics'])}
-ГРАММАТИКА УРОВНЯ: {', '.join(syl['grammar'])}
-
-ТРЕБОВАНИЯ:
-- 5 новых слов строго по темам уровня.
-- 1 правило грамматики с 2 примерами.
-- Диалог 3–4 реплики, простой.
-- Ровно 3 задания на перевод с русского на польский.{review_block}
-
-Верни ТОЛЬКО JSON:
-{{
-  "words": [{{"pl":"...","ru":"...","example_pl":"...","example_ru":"..."}}],
-  "grammar": {{"title":"...","explanation":"...","examples":["..."]}},
-  "dialogue": [{{"speaker":"A","pl":"...","ru":"..."}}],
-  "tasks": [{{"ru":"...","correct":"..."}}]
-}}"""
-
-    raw = await get_ai_response(prompt, LESSON_SYSTEM_PROMPT)
-    try:
-        lesson = _parse_json(raw)
-    except Exception as e:
-        logger.error(f"Lesson JSON error: {e}")
-        lesson = None
-    if not lesson or "words" not in lesson or "tasks" not in lesson:
-        return await message.answer("😔 Не удалось сгенерировать урок. Попробуй ещё раз.")
-
-    try:
-        await db.add_learned_words(
-            message.from_user.id,
-            [{"word": w["pl"], "translation": w["ru"], "level": level} for w in lesson["words"]],
+    if review_words:
+        review_block = (
+            "Обязательно включи в урок эти ранее изученные слова для повторения: "
+            + ", ".join(review_words)
+            + "."
         )
-    except Exception as e:
-        logger.error(f"Save words: {e}")
 
-    html = _lesson_html(lesson)
+    await message.answer(
+        f"🔄 {name}, готовлю урок: уровень {level}, тема «{topic}»..."
+    )
+
+    prompt = f"""Ты — строгий учитель польского языка. Ученик уровня {level}.
+Тема урока: {topic}.
+Грамматика уровня: {grammar}.
+
+Составь урок СТРОГО по теме «{topic}» и строго по уровню {level}.
+Не выходи за рамки уровня и темы.
+
+Структура:
+1. 5 новых слов по теме «{topic}» — слово, перевод, пример и перевод примера.
+2. Правило грамматики ({grammar}) — кратко, с 1-2 примерами.
+3. Короткий диалог (3-4 реплики) с переводом на русский.
+4. Ровно 3 задания на перевод с русского на польский.
+
+{review_block}
+
+В САМОМ КОНЦЕ ответа добавь служебный блок строго в таком виде
+(без тегов, без markdown, без звёздочек):
+
+[[WORDS]]
+польское_слово|русский_перевод
+польское_слово|русский_перевод
+польское_слово|русский_перевод
+польское_слово|русский_перевод
+польское_слово|русский_перевод
+
+ВАЖНО: Используй в тексте только теги <b> и <code>. Обязательно закрывай их!
+"""
+
+    lesson_raw = await get_ai_response(prompt, LESSON_SYSTEM_PROMPT)
+
+    if not lesson_raw or lesson_raw.startswith("⚠️") or lesson_raw.startswith("Ошибка"):
+        await message.answer("⚠️ Не удалось получить урок от ИИ. Попробуй ещё раз через минуту.")
+        return
+
+    # сохраняем новые слова
+    new_words = _extract_words(lesson_raw)
+    if new_words:
+        try:
+            await db.add_learned_words(message.from_user.id, new_words)
+        except Exception as e:
+            logger.error(f"Не удалось сохранить слова: {e}")
+
+    lesson_text = _strip_words_block(lesson_raw)
+
+    # отправляем сам урок
     try:
-        await message.answer(html, parse_mode="HTML")
-    except Exception:
-        await message.answer(_strip_tags(html))
+        await message.answer(lesson_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка HTML в уроке: {e}. Отправляю текстом.")
+        await message.answer(lesson_text)
 
-    dialogue = " ".join(x["pl"] for x in lesson.get("dialogue", []))
-    if dialogue:
-        path = f"audio_{uuid.uuid4().hex}.mp3"
-        if await _tts(dialogue, path):
+    # озвучка (первые 300 символов без тегов)
+    text_to_speak = re.sub(r"<[^>]+>", "", lesson_text)[:300]
+    if text_to_speak.strip():
+        filename = f"audio_{uuid.uuid4().hex}.mp3"
+        if await generate_audio(text_to_speak, filename):
             try:
-                await message.answer_voice(FSInputFile(path), caption="🔊 Диалог урока")
+                await message.answer_voice(
+                    FSInputFile(filename), caption="🔊 Послушай урок (озвучка Google)"
+                )
             finally:
-                try: os.remove(path)
-                except OSError: pass
+                try:
+                    os.remove(filename)
+                except OSError:
+                    pass
         else:
             await message.answer("⚠️ Аудио временно недоступно.")
 
     await state.set_state(LessonStates.waiting_for_answers)
-    await state.update_data(lesson=lesson, level_at_start=level)
+    await state.update_data(lesson_text=lesson_text, level_at_start=level)
     await message.answer("📝 Напиши ответы на 3 задания через точку с запятой (;).")
 
-@router.message(LessonStates.waiting_for_answers, ~F.text.startswith("/"))
+
+# ---------- проверка ответов ----------
+
+@router.message(LessonStates.waiting_for_answers)
 async def check_lesson(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Пожалуйста, напиши ответы текстом.")
+        return
+
     data = await state.get_data()
-    lesson = data.get("lesson")
+    lesson_text = data.get("lesson_text")
     level_at_start = data.get("level_at_start", "A0")
-    if not lesson:
+    user_answers = message.text
+
+    if not lesson_text:
         await state.clear()
-        return await message.answer("Урок потерян. Начни заново: /lesson")
+        await message.answer("Урок потерян. Начни заново: /lesson")
+        return
 
-    tasks = lesson.get("tasks", [])
-    await message.answer("🔄 Проверяю ответы...")
+    await message.answer(
+        "🔄 Принял ответы! Анализирую ошибки и готовлю разбор... Подожди 10-15 секунд."
+    )
 
-    prompt = f"""Проверь ответы ученика уровня {level_at_start}.
+    prompt = f"""Вот текст урока, который ты составил ранее для ученика уровня {level_at_start}:
 
-Задания и правильные ответы:
-{json.dumps(tasks, ensure_ascii=False)}
+{lesson_text}
 
-Ответы ученика (через ';'): {message.text}
+Ученик прислал ответы на 3 задания:
+{user_answers}
 
-Сопоставь по порядку. Если ответов меньше — оставь соответствующие пустыми и is_correct=false.
-Правильным считай только грамматически верный ответ (мелкие опечатки допустимы).
+Проверь каждый ответ строго и дружелюбно.
+- Для правильного ответа пиши: ✅ <b>Правильно!</b>
+- Для ошибки пиши: ❌ <b>Ошибка!</b> или ⚠️ <b>Почти правильно!</b>
+- Правильные польские слова обязательно выделяй тегом <code>...</code>.
+- В конце разбора кратко объясни каждую ошибку по-русски.
 
-Верни ТОЛЬКО JSON:
-{{
-  "results": [{{"index":1,"user_answer":"...","correct_answer":"...","is_correct":true,"explanation":"..."}}],
-  "total_correct": 0,
-  "overall": "..."
-}}"""
+ВАЖНО: в самом конце ответа, на отдельной строке, добавь скрытую служебную метку:
+- Если ВСЕ 3 ответа абсолютно правильные (0 ошибок) — напиши на новой строке: [PERFECT]
+- Если есть хотя бы одна ошибка — НЕ пиши [PERFECT].
+"""
 
-    raw = await get_ai_response(prompt, CHECK_SYSTEM_PROMPT)
+    feedback_raw = await get_ai_response(prompt, CHECK_SYSTEM_PROMPT)
+
+    if not feedback_raw or feedback_raw.startswith("⚠️") or feedback_raw.startswith("Ошибка"):
+        await state.clear()
+        await message.answer("⚠️ Не удалось проверить ответы. Попробуй начать новый урок: /lesson")
+        return
+
+    is_perfect = "[PERFECT]" in feedback_raw
+    feedback_text = _strip_perfect_marker(feedback_raw)
+
     try:
-        fb = _parse_json(raw)
+        await message.answer(feedback_text, parse_mode="HTML")
     except Exception as e:
-        logger.error(f"Check JSON error: {e}")
-        fb = None
-    if not fb:
-        await state.clear()
-        return await message.answer("⚠️ Не удалось проверить ответы. Начни новый урок: /lesson")
+        logger.error(f"Ошибка HTML в проверке: {e}. Отправляю текстом.")
+        await message.answer(feedback_text)
 
-    total = len(tasks)
-    correct = sum(1 for r in fb.get("results", []) if r.get("is_correct"))
-    all_correct = total > 0 and correct == total
+    # обновляем счётчики
+    try:
+        await db.increment_field(message.from_user.id, "lessons_completed", 1)
+        if is_perfect:
+            await db.increment_field(message.from_user.id, "perfect_streak", 1)
+        else:
+            await db.reset_field(message.from_user.id, "perfect_streak", 0)
+    except Exception as e:
+        logger.error(f"Не удалось обновить счётчики: {e}")
 
-    await db.update_progress(message.from_user.id, all_correct)
     user = await db.get_user(message.from_user.id)
-    prog = (user or {}).get("progress", {})
-    streak = prog.get("streak", 0)
-    leveled_to = None
+    streak = (user or {}).get("perfect_streak", 0) or 0
 
+    if is_perfect:
+        await message.answer(
+            f"🔥 Отличный урок без ошибок! Серия идеальных уроков: {streak}/5."
+        )
+    else:
+        await message.answer(
+            "📖 Есть ошибки — серия идеальных уроков сброшена. Тренируйся дальше!"
+        )
+
+    # повышение уровня при 5 идеальных подряд
     if streak >= 5:
-        nl = next_level(level_at_start)
-        if nl:
-            await db.update_user_field(message.from_user.id, "language_level", nl)
-            prog["streak"] = 0
-            await db.update_user_field(message.from_user.id, "progress", prog)
-            leveled_to = nl
-            streak = 0
-
-    try:
-        for w in lesson.get("words", []):
-            await db.update_word_after_review(message.from_user.id, w["pl"], all_correct)
-    except Exception as e:
-        logger.error(f"SRS update: {e}")
-
-    html = _feedback_html(fb, correct, total, streak, leveled_to)
-    try:
-        await message.answer(html, parse_mode="HTML")
-    except Exception:
-        await message.answer(_strip_tags(html))
+        new_level = next_level(level_at_start)
+        if new_level:
+            await db.update_user_field(message.from_user.id, "language_level", new_level)
+            await db.reset_field(message.from_user.id, "perfect_streak", 0)
+            await message.answer(
+                f"🎉🎉 Поздравляю! Пять идеальных уроков подряд.\n"
+                f"Твой новый уровень: {new_level}!\n"
+                f"Продолжай в том же духе: /lesson"
+            )
+        else:
+            await db.reset_field(message.from_user.id, "perfect_streak", 0)
+            await message.answer(
+                "🏆 Ты уже на максимальном уровне C2! Продолжай совершенствоваться — /lesson."
+            )
 
     await state.clear()
-    await message.answer("Отлично! /lesson — следующий урок, /words — мои слова.")
+    await message.answer("Готов к следующему уроку? Напиши /lesson.")
