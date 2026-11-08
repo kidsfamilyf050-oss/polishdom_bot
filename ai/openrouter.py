@@ -3,11 +3,10 @@ import logging
 from config import settings
 
 async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
-    # Check if OPENROUTER_API_KEY is provided
-    if not settings.OPENROUTER_API_KEY:
-        logging.warning("OPENROUTER_API_KEY not provided. Using fallback responses.")
-        
-        # Provide fallback responses based on the system prompt
+    api_key = getattr(settings, "GEMINI_API_KEY", None)
+    if not api_key:
+        logging.warning("GEMINI_API_KEY not provided. Using fallback responses.")
+        # (Оставьте здесь ваши старые fallback-ответы, если они нужны)
         if system_prompt == WORD_SYSTEM_PROMPT:
             return "słowo|слово|To jest słowo.|Это слово."
         elif system_prompt == TEST_SYSTEM_PROMPT:
@@ -15,46 +14,28 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         elif system_prompt == INTERVIEW_SYSTEM_PROMPT:
             return "Вы хорошо подготовлены к интервью. Продолжайте практиковаться."
         else:
-            return "Функция недоступна без API ключа OpenRouter."
-    
-    try:
-        messages = []
-        if system_prompt:
-            messages.append({
-                "role": "system",
-                "content": system_prompt
-            })
-        messages.append({
-            "role": "user",
-            "content": prompt
-        })
+            return "Функция недоступна без API ключа Google Gemini."
 
+    # Формируем запрос к Gemini API
+    contents = []
+    if system_prompt:
+        contents.append({"role": "user", "parts": [{"text": system_prompt}]})
+    contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    payload = {"contents": contents}
+
+    try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-                    "HTTP-Referer": "https://github.com/zerox9dev/polishdom_bot",  # Optional, for tracking
-                    "X-Title": "PolishDom Bot"  # Optional, for tracking
-                },
-                json={
-                    "model": "meta-llama/llama-3.3-70b-instruct:free",  # Бесплатная и умная модель
-                    "messages": messages,
-                    "stream": False,
-                    "temperature": 0.3,
-                    "max_tokens": 2000
-                }
-            ) as response:
+            async with session.post(url, json=payload) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logging.error(f"OpenRouter API error: {response.status} - {error_text}")
+                    logging.error(f"Gemini API error: {response.status} - {error_text}")
                     return f"Ошибка API: {response.status} - {error_text}"
-                
                 data = await response.json()
-                return data["choices"][0]["message"]["content"]
+                return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
-        logging.error(f"Error in get_ai_response: {str(e)}")
+        logging.error(f"Error in get_ai_response (Gemini): {str(e)}")
         return f"Ошибка при запросе к API: {str(e)}"
 
 # Системные промпты для разных задач
