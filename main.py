@@ -113,15 +113,15 @@ async def on_startup(bot: Bot):
         logger.info(f"Webhook set to URL: {WEBHOOK_URL}")
         
         # Проверяем доступ к каналу
-        try:
-            chat = await bot.get_chat(settings.CHANNEL_ID)
-            bot_member = await bot.get_chat_member(settings.CHANNEL_ID, (await bot.me()).id)
-            if bot_member.status not in ["administrator", "creator"]:
-                raise ValueError("Bot is not an administrator in the channel")
-            logger.info(f"Successfully connected to channel {chat.title} (@{chat.username})")
-        except TelegramAPIError as e:
-            logger.error(f"Failed to access channel: {e}")
-            raise ValueError(f"Failed to access channel: {e}")
+        #try:
+        #    chat = await bot.get_chat(settings.CHANNEL_ID)
+        #    bot_member = await bot.get_chat_member(settings.CHANNEL_ID, (await bot.me()).id)
+        #    if bot_member.status not in ["administrator", "creator"]:
+        #        raise ValueError("Bot is not an administrator in the channel")
+        #    logger.info(f"Successfully connected to channel {chat.title} (@{chat.username})")
+        #except TelegramAPIError as e:
+        #    logger.error(f"Failed to access channel: {e}")
+        #    raise ValueError(f"Failed to access channel: {e}")
         
         # Регистрация команд бота
         await bot.set_my_commands(commands)
