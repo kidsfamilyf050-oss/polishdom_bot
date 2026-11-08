@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from db.mongo import db
@@ -28,7 +28,7 @@ async def cmd_start(message: Message, state: FSMContext):
         "Команды:\n"
         "/test — Определить уровень\n"
         "/lesson — Начать урок\n"
-        "/remind 21:00 — Напоминание\n"
+        "/remind — Настроить напоминания\n"
         "/profile — Мой профиль"
     )
 
@@ -51,8 +51,38 @@ async def cmd_profile(message: Message):
 
 @router.message(Command("remind"))
 async def cmd_remind(message: Message):
-    args = message.text.split()
-    if len(args) < 2:
-        return await message.answer("Формат: /remind 21:00")
-    await db.update_user_field(message.from_user.id, "reminder_time", args[1])
-    await message.answer(f"✅ Буду напоминать каждый день в {args[1]}.")
+    # Создаем кнопки с популярным временем
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="09:00", callback_data="remind_09:00"),
+            InlineKeyboardButton(text="12:00", callback_data="remind_12:00"),
+            InlineKeyboardButton(text="15:00", callback_data="remind_15:00")
+        ],
+        [
+            InlineKeyboardButton(text="18:00", callback_data="remind_18:00"),
+            InlineKeyboardButton(text="20:00", callback_data="remind_20:00"),
+            InlineKeyboardButton(text="21:00", callback_data="remind_21:00")
+        ],
+        [
+            InlineKeyboardButton(text="22:00", callback_data="remind_22:00"),
+            InlineKeyboardButton(text="❌ Отключить", callback_data="remind_off")
+        ]
+    ])
+    await message.answer(
+        "⏰ Выбери удобное время для ежедневных напоминаний.\n\n"
+        "⚠️ *Обрати внимание:* сервер работает по времени UTC (на 5 часов меньше, чем в Казахстане). "
+        "Если хочешь получать напоминание в 21:00 по времени Алматы, выбирай **16:00**.", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+@router.callback_query(F.data.startswith("remind_"))
+async def process_remind_time(callback: CallbackQuery):
+    time_str = callback.data.split("_")[1]
+    if time_str == "off":
+        await db.update_user_field(callback.from_user.id, "reminder_time", None)
+        await callback.message.edit_text("🔕 Напоминания отключены.")
+    else:
+        await db.update_user_field(callback.from_user.id, "reminder_time", time_str)
+        await callback.message.edit_text(f"✅ Отлично! Я буду напоминать тебе каждый день в {time_str} (UTC).")
+    await callback.answer()
