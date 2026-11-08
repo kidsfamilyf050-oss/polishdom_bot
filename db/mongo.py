@@ -28,7 +28,6 @@ class Database:
     async def update_user_field(self, user_id: int, field: str, value):
         await self.db.users.update_one({"user_id": user_id}, {"$set": {field: value}})
 
-    # --- ФУНКЦИИ, КОТОРЫЕ ЗАБЫЛ ТОТ ИИ ---
     async def add_learned_words(self, user_id: int, words: list):
         if words:
             await self.db.users.update_one({"user_id": user_id}, {"$addToSet": {"learned_words": {"$each": words}}})
