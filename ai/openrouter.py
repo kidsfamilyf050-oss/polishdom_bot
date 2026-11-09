@@ -19,8 +19,8 @@ async def get_ai_response(prompt: str, system_prompt: str = None) -> str:
         contents.append({"role": "user", "parts": [{"text": system_prompt}]})
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-    # ✅ Официальный эндпоинт и быстрая модель
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    # ✅ ИСПОЛЬЗУЕМ АКТУАЛЬНУЮ МОДЕЛЬ ВМЕСТО УДАЛЕННОЙ gemini-1.5-flash
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
     
     headers = {
         "Content-Type": "application/json",
