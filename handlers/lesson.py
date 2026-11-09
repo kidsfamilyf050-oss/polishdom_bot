@@ -23,6 +23,7 @@ CHECK_SYSTEM_PROMPT = "Ты — строгий учитель польского
 def _pick_topic(level: str, lessons_completed: int) -> str:
     syl = get_syllabus(level)
     topics = syl.get("topics") or ["общая тема"]
+    # Выбираем тему по кругу
     return topics[lessons_completed % len(topics)]
 
 def _extract_words(text: str):
@@ -61,6 +62,7 @@ async def cmd_lesson(message: Message, state: FSMContext):
 
     level = user.get("language_level", "A0")
     name = user.get("name") or "друг"
+    # Берем текущий счетчик уроков
     lessons_completed = user.get("lessons_completed", 0) or 0
     learned_words = user.get("learned_words", []) or []
 
@@ -112,6 +114,10 @@ async def cmd_lesson(message: Message, state: FSMContext):
         logger.error(f"Ошибка HTML в уроке: {e}")
         clean_text = _clean_html(lesson_text)
         await message.answer(clean_text)
+
+    # ✅ УВЕЛИЧИВАЕМ СЧЕТЧИК УРОКОВ СРАЗУ ПОСЛЕ ВЫДАЧИ!
+    # Теперь следующий урок будет по другой теме, даже если ты не ответишь на этот.
+    await db.increment_field(message.from_user.id, "lessons_completed", 1)
 
     await state.set_state(LessonStates.waiting_for_answers)
     await state.update_data(lesson_text=lesson_text, level_at_start=level)
@@ -168,7 +174,7 @@ async def check_lesson(message: Message, state: FSMContext):
         clean_text = _clean_html(feedback_text)
         await message.answer(clean_text)
 
-    await db.increment_field(message.from_user.id, "lessons_completed", 1)
+    # Счетчик уроков мы уже увеличили в cmd_lesson, здесь только серия
     if is_perfect:
         await db.increment_field(message.from_user.id, "perfect_streak", 1)
     else:
